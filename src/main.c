@@ -1,6 +1,6 @@
 #include <arpa/inet.h>
-#include <errno.h>
 #include <poll.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +11,15 @@
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 1024
 
+typedef struct {
+    int fd;
+    char *name;
+} User;
+
 int main() {
+    // Track users
+    User users[MAX_CLIENTS + 1] = {0};
+
     int listen_fd, new_fd;
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_len = sizeof(client_addr);
@@ -75,6 +83,10 @@ int main() {
                 continue;
             }
 
+            // Get their name
+            char *ask_for_name = "Hi there and welcome. What's your name?\n";
+            send(new_fd, ask_for_name, strlen(ask_for_name), 0);
+
             // Tell other users that someone joined
             for (int i = 1; i <= MAX_CLIENTS; i++) {
                 int fd = fds[i].fd;
@@ -86,11 +98,16 @@ int main() {
                 send(fd, join_msg, strlen(join_msg), 0);
             }
 
-            // Add to poll list
+            // Register user
             for (int i = 1; i <= MAX_CLIENTS; i++) {
                 if (fds[i].fd < 0) {
                     fds[i].fd = new_fd;
                     fds[i].events = POLLIN;
+
+                    // Track the user
+                    users[i].fd = new_fd;
+                    users[i].name = NULL;
+
                     break;
                 }
             }
@@ -113,7 +130,31 @@ int main() {
                     fds[i].fd = -1;
                 } else {
                     buffer[bytes] = '\0';
-                    printf("Received from %d: %s", fd, buffer);
+
+                    // Handle name identification
+                    if (strncmp(buffer, "My name is ", 11) == 0) {
+                        char *name = buffer + 11;
+                        name[strcspn(name, "\r\n")] = '\0'; // New stripline
+                        printf("name: %s\n", name);
+
+                        // Copy so it survives the next recv
+                        size_t len = strlen(name);
+                        users[i].name = malloc(len + 1);
+                        if (users[i].name) {
+                            strcpy(users[i].name, name);
+                        }
+
+                        // Tell them they've registered their name by repeating
+                        // it back to them
+                        char reply[BUFFER_SIZE];
+                        // Write to `reply` so that we can send it
+                        int n = snprintf(reply, sizeof(reply), "Hi, %s\n",
+                                         users[i].name);
+                        if (n > 0) {
+                            send(fd, reply, (size_t)n, 0);
+                        }
+                    }
+
                     send(fd, buffer, bytes, 0); // Echo back
                 }
             }
