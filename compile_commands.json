@@ -1,0 +1,19 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-Wall",
+      "-Wextra",
+      "-std=c17",
+      "-Iinclude",
+      "-Itests/unity",
+      "-c",
+      "-o",
+      "build/main.o",
+      "src/main.c"
+    ],
+    "directory": "/home/jay/Documents/projects/c_chat",
+    "file": "/home/jay/Documents/projects/c_chat/src/main.c",
+    "output": "/home/jay/Documents/projects/c_chat/build/main.o"
+  }
+]
