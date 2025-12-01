@@ -50,6 +50,7 @@ int main() {
     // Prepare poll fds
     struct pollfd fds[MAX_CLIENTS + 1];
     fds[0].fd = listen_fd;
+    // Tell poll that we care about events that let us read
     fds[0].events = POLLIN; // Ready to accept connections
 
     // Initialize all of the client fds to -1
@@ -74,7 +75,16 @@ int main() {
                 continue;
             }
 
-            printf("New client connected: %d\n", new_fd);
+            // Tell other users that someone joined
+            for (int i = 1; i <= MAX_CLIENTS; i++) {
+                int fd = fds[i].fd;
+                if (fd < 0) {
+                    continue;
+                }
+
+                const char *join_msg = "New client connected";
+                send(fd, join_msg, strlen(join_msg), 0);
+            }
 
             // Add to poll list
             for (int i = 1; i <= MAX_CLIENTS; i++) {
@@ -89,6 +99,8 @@ int main() {
         // Handle data from clients
         for (int i = 1; i <= MAX_CLIENTS; i++) {
             int fd = fds[i].fd;
+
+            // If there's no client
             if (fd < 0)
                 continue;
 
