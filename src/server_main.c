@@ -26,7 +26,6 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
                 User users[MAX_CLIENTS + 1], int user_idx) {
     MessageHeader hdr;
     // TODO: this isn't logging when user disconnects
-    printf("inside recv_packet");
     if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
         // Tell other users that someone left
         for (int i = 1; i <= MAX_CLIENTS; i++) {
@@ -162,6 +161,7 @@ int main(void) {
 
         // Register new connections
         if (fds[0].revents & POLLIN) {
+            printf("New connection!");
             new_fd =
                 accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
             if (new_fd < 0) {

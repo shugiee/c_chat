@@ -1,4 +1,6 @@
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +12,11 @@
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
 #define BUFFER_SIZE 1024
+
+void make_nonblocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+};
 
 // Global so that the handle_sigint can use it
 int sockfd = -1;
@@ -33,11 +40,7 @@ void handle_sigint(int sig) {
         // Send "disconnect" message
         uint8_t type = 99;
         const char *msg = "Client exiting";
-        MessageHeader hdr = {1, type, 0, htonl(strlen(msg))};
-
-        send(sockfd, &hdr, sizeof(hdr), 0);
-        send(sockfd, &msg, strlen(msg), 0);
-
+        send_packet(sockfd, 99, msg);
         printf("Sent disconnect message to server\n");
         close(sockfd);
     }
@@ -46,7 +49,6 @@ void handle_sigint(int sig) {
 };
 
 int main(void) {
-    int sockfd;
     struct sockaddr_in server_addr;
     char read_buffer[BUFFER_SIZE];
     char write_buffer[BUFFER_SIZE];
@@ -77,23 +79,49 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
+    make_nonblocking(sockfd);
+    make_nonblocking(STDIN_FILENO);
+
+    struct pollfd fds[2];
+    fds[0].fd = STDIN_FILENO;
+    fds[0].events = POLLIN;
+    fds[1].fd = sockfd;
+    fds[1].events = POLLIN;
+
     printf("Client connected to server at %s:%d\n", SERVER_IP, SERVER_PORT);
 
     // Send message
     while (1) {
-        // Receive echo
-        int bytes = recv(sockfd, read_buffer, sizeof(read_buffer) - 1, 0);
-        if (bytes <= 0) {
-            printf("Server closed connection\n");
+        int ret = poll(fds, 2, -1);
+        if (ret < 0) {
+            perror("poll");
             break;
         }
-        read_buffer[bytes] = '\0';
-        printf("%s\n", read_buffer);
 
-        if (!fgets(write_buffer, sizeof(write_buffer), stdin)) {
-            break;
-        }
-        send_packet(sockfd, 1, write_buffer);
+        // Composing message
+        if (fds[0].revents & POLLIN) {
+            ssize_t n =
+                read(STDIN_FILENO, write_buffer, sizeof(write_buffer) - 1);
+
+            if (n > 0) {
+                write_buffer[n] = '\0';
+                send_packet(sockfd, 1, write_buffer);
+            };
+        };
+
+        // Receive message
+        if (fds[1].revents & POLLIN) {
+            ssize_t n = recv(sockfd, read_buffer, sizeof(read_buffer) - 1, 0);
+            if (n <= 0) {
+                printf("Server disconnected\n");
+                break;
+            }
+
+            read_buffer[n] = '\0';
+            printf("%s\n", read_buffer);
+            fflush(stdout);
+        };
     }
+    close(sockfd);
     return 0;
 };
