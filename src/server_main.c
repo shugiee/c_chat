@@ -7,6 +7,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <protocol.h>
+
 #define PORT 18000
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 1024
@@ -15,6 +17,40 @@ typedef struct {
     int fd;
     char *name;
 } User;
+
+void recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1], int i) {
+    MessageHeader hdr;
+    if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
+        close(sockfd);
+        fds[i].fd = -1;
+        return;
+    }
+
+    hdr.length = ntohl(hdr.length); // convert network to local
+
+    char *body = malloc(hdr.length + 1);
+    if (!body)
+        return;
+
+    if (recv(sockfd, body, hdr.length, MSG_WAITALL) <= 0) {
+        free(body);
+        return;
+    }
+    body[hdr.length] = '\0';
+
+    switch (hdr.msg_type) {
+    case 1:
+        printf("SET_NAME: %s\n", body);
+        break;
+    case 2:
+        printf("CHAT_MSG: %s\n", body);
+        break;
+    default:
+        printf("Unknown type %d\n", hdr.msg_type);
+    }
+
+    free(body);
+}
 
 int main(void) {
     // Track users
@@ -122,18 +158,7 @@ int main(void) {
                 continue;
 
             if (fds[i].revents & POLLIN) {
-                int bytes = recv(fd, buffer, sizeof(buffer) - 1, 0);
-                if (bytes <= 0) {
-                    // Client disconnected
-                    printf("Client %d disconnected\n", fd);
-                    close(fd);
-                    fds[i].fd = -1;
-                    continue;
-                }
-                buffer[bytes] = '\0';
-                printf("Received: %s\n", buffer);
-                send(fd, buffer, bytes, 0); // Echo back
-                fflush(stdout);
+                recv_packet(fd, fds, i);
             }
         }
     }

@@ -4,9 +4,23 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <protocol.h>
+
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
 #define BUFFER_SIZE 1024
+
+void send_packet(int sockfd, uint8_t type, const char *body) {
+    MessageHeader hdr;
+    hdr.version = 1;
+    hdr.msg_type = type;
+    hdr.flags = 0;
+    hdr.length = htonl(strlen(body)); // convert to network byte order
+
+    // write header + body
+    send(sockfd, &hdr, sizeof(hdr), 0);
+    send(sockfd, body, strlen(body), 0);
+}
 
 int main(void) {
     int sockfd;
@@ -44,7 +58,7 @@ int main(void) {
         if (!fgets(write_buffer, sizeof(write_buffer), stdin)) {
             break;
         }
-        send(sockfd, write_buffer, strlen(write_buffer), 0);
+        send_packet(sockfd, 1, write_buffer);
 
         // Receive echo
         int bytes = recv(sockfd, read_buffer, sizeof(read_buffer) - 1, 0);
