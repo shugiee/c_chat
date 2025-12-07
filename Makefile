@@ -1,5 +1,6 @@
 # === Project configuration ===
-TARGET := myproject
+CLIENT := chat-client
+SERVER := chat-server
 SRC_DIR := src
 INC_DIR := include
 BUILD_DIR := build
@@ -10,14 +11,25 @@ LDLIBS := -lm
 
 # === Collect all source files ===
 SRCS := $(shell find $(SRC_DIR) -name '*.c')
-OBJS := $(SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+CLIENT_MAIN := $(SRC_DIR)/client_main.c
+SERVER_MAIN := $(SRC_DIR)/server_main.c
+MAIN_SRCS := $(CLIENT_MAIN) $(SERVER_MAIN)
+COMMON_SRCS := $(filter-out $(MAIN_SRCS),$(SRCS))
+COMMON_OBJS := $(COMMON_SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+CLIENT_OBJ := $(CLIENT_MAIN:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+SERVER_OBJ := $(SERVER_MAIN:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 TEST_SRCS := $(wildcard tests/*.c)
-LIB_SRCS := $(filter-out $(SRC_DIR)/main.c,$(SRCS))
 
-# === Default target ===
-$(BUILD_DIR)/$(TARGET): $(OBJS)
+# === Compile targets ===
+all: $(BUILD_DIR)/$(CLIENT) $(BUILD_DIR)/$(SERVER)
+
+$(BUILD_DIR)/$(CLIENT): $(CLIENT_OBJ) $(COMMON_OBJS)
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD_DIR)/$(SERVER): $(SERVER_OBJ) $(COMMON_OBJS)
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
 # === Compile each .c into .o ===
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
@@ -25,10 +37,13 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # === Convenience targets ===
-.PHONY: run clean test
+.PHONY: all run run-server run-client clean test
 
-run: $(BUILD_DIR)/$(TARGET)
-	./$(BUILD_DIR)/$(TARGET)
+run-server: $(BUILD_DIR)/$(SERVER)
+	./$(BUILD_DIR)/$(SERVER)
+
+run-client: $(BUILD_DIR)/$(CLIENT)
+	./$(BUILD_DIR)/$(CLIENT)
 
 clean:
 	rm -rf $(BUILD_DIR)
@@ -37,7 +52,7 @@ clean:
 test: $(BUILD_DIR)/runTests
 	./$(BUILD_DIR)/runTests
 
-$(BUILD_DIR)/runTests: $(TEST_SRCS) $(LIB_SRCS) tests/unity/unity.c | $(BUILD_DIR)
+$(BUILD_DIR)/runTests: $(TEST_SRCS) $(COMMON_OBJS) tests/unity/unity.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR):

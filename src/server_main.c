@@ -16,7 +16,7 @@ typedef struct {
     char *name;
 } User;
 
-int main() {
+int main(void) {
     // Track users
     User users[MAX_CLIENTS + 1] = {0};
 
