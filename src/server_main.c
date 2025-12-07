@@ -18,40 +18,90 @@ typedef struct {
     char *name;
 } User;
 
-void recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
-                 User users[MAX_CLIENTS + 1], int i) {
+void remove_user(int user_idx, User users[MAX_CLIENTS + 1]) {
+    memset(&users[user_idx], 0, sizeof(User));
+};
+
+int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
+                User users[MAX_CLIENTS + 1], int user_idx) {
     MessageHeader hdr;
+    // TODO: this isn't logging when user disconnects
+    printf("inside recv_packet");
     if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
+        // Tell other users that someone left
+        for (int i = 1; i <= MAX_CLIENTS; i++) {
+            int fd = fds[i].fd;
+
+            if (fd < 0) {
+                continue;
+            }
+
+            printf("Trying to send 'left' message to %d", i);
+
+            int len = snprintf(NULL, 0, "%s left", users[user_idx].name);
+            char *join_msg = malloc(len + 1);
+            if (!join_msg)
+                return 1;
+            snprintf(join_msg, len + 1, "%s left", users[user_idx].name);
+            send(fd, join_msg, strlen(join_msg), 0);
+        }
         close(sockfd);
-        fds[i].fd = -1;
-        return;
+        fds[user_idx].fd = -1;
+        remove_user(user_idx, users);
+        return 0;
     }
 
     hdr.length = ntohl(hdr.length); // convert network to local
 
     char *body = malloc(hdr.length + 1);
     if (!body)
-        return;
+        return 0;
 
     if (recv(sockfd, body, hdr.length, MSG_WAITALL) <= 0) {
         free(body);
-        return;
+        return 0;
     }
     body[hdr.length] = '\0';
 
     switch (hdr.msg_type) {
-    case 1:
-        users[i].name = body;
-        printf("User %d set name to %s\n", i, users[i].name);
+    case MSG_SET_NAME:
+        users[user_idx].name = body;
+        // Tell other users that someone joined
+        for (int i = 1; i <= MAX_CLIENTS; i++) {
+            int fd = fds[i].fd;
+
+            if (i == user_idx) {
+                printf("Not sending message to %d from %d", i, user_idx);
+                continue;
+            }
+            if (fd < 0 || i == user_idx) {
+                continue;
+            }
+
+            int len = snprintf(NULL, 0, "%s joined", users[user_idx].name);
+            char *join_msg = malloc(len + 1);
+            if (!join_msg)
+                return 1;
+            snprintf(join_msg, len + 1, "%s joined", users[user_idx].name);
+            send(fd, join_msg, strlen(join_msg), 0);
+            break;
+        }
         break;
-    case 2:
+    case MSG_CHAT:
         printf("CHAT_MSG: %s\n", body);
+        break;
+    case MSG_DISCONNECT:
+        printf("%s left\n", body);
+        close(sockfd);
+        fds[user_idx].fd = -1;
+        remove_user(user_idx, users);
         break;
     default:
         printf("Unknown type %d\n", hdr.msg_type);
     }
 
     free(body);
+    return 0;
 }
 
 int main(void) {
@@ -122,17 +172,6 @@ int main(void) {
             // Get their name
             char *ask_for_name = "Hi there and welcome. What's your name?\n";
             send(new_fd, ask_for_name, strlen(ask_for_name), 0);
-
-            // Tell other users that someone joined
-            for (int i = 1; i <= MAX_CLIENTS; i++) {
-                int fd = fds[i].fd;
-                if (fd < 0) {
-                    continue;
-                }
-
-                const char *join_msg = "New client connected";
-                send(fd, join_msg, strlen(join_msg), 0);
-            }
 
             // Register user
             for (int i = 1; i <= MAX_CLIENTS; i++) {

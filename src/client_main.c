@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +10,9 @@
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
 #define BUFFER_SIZE 1024
+
+// Global so that the handle_sigint can use it
+int sockfd = -1;
 
 void send_packet(int sockfd, uint8_t type, const char *body) {
     MessageHeader hdr;
@@ -22,11 +26,33 @@ void send_packet(int sockfd, uint8_t type, const char *body) {
     send(sockfd, body, strlen(body), 0);
 }
 
+void handle_sigint(int sig) {
+    (void)sig; // unused
+
+    if (sockfd >= 0) {
+        // Send "disconnect" message
+        uint8_t type = 99;
+        const char *msg = "Client exiting";
+        MessageHeader hdr = {1, type, 0, htonl(strlen(msg))};
+
+        send(sockfd, &hdr, sizeof(hdr), 0);
+        send(sockfd, &msg, strlen(msg), 0);
+
+        printf("Sent disconnect message to server\n");
+        close(sockfd);
+    }
+
+    exit(0);
+};
+
 int main(void) {
     int sockfd;
     struct sockaddr_in server_addr;
     char read_buffer[BUFFER_SIZE];
     char write_buffer[BUFFER_SIZE];
+
+    // Register disconnect sentinel
+    signal(SIGINT, handle_sigint);
 
     // Create socket
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {

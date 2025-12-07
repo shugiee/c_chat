@@ -15,5 +15,6 @@ enum MessageType {
     MSG_HELLO = 0,
     MSG_SET_NAME = 1,
     MSG_CHAT = 2,
-    MSG_PING = 3
+    MSG_PING = 3,
+    MSG_DISCONNECT = 99
 };
