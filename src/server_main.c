@@ -123,40 +123,17 @@ int main(void) {
 
             if (fds[i].revents & POLLIN) {
                 int bytes = recv(fd, buffer, sizeof(buffer) - 1, 0);
-                if (bytes < 0) {
+                if (bytes <= 0) {
                     // Client disconnected
-                    printf("Client %d disconnected", fd);
+                    printf("Client %d disconnected\n", fd);
                     close(fd);
                     fds[i].fd = -1;
-                } else {
-                    buffer[bytes] = '\0';
-
-                    // Handle name identification
-                    if (strncmp(buffer, "My name is ", 11) == 0) {
-                        char *name = buffer + 11;
-                        name[strcspn(name, "\r\n")] = '\0'; // New stripline
-                        printf("name: %s\n", name);
-
-                        // Copy so it survives the next recv
-                        size_t len = strlen(name);
-                        users[i].name = malloc(len + 1);
-                        if (users[i].name) {
-                            strcpy(users[i].name, name);
-                        }
-
-                        // Tell them they've registered their name by repeating
-                        // it back to them
-                        char reply[BUFFER_SIZE];
-                        // Write to `reply` so that we can send it
-                        int n = snprintf(reply, sizeof(reply), "Hi, %s\n",
-                                         users[i].name);
-                        if (n > 0) {
-                            send(fd, reply, (size_t)n, 0);
-                        }
-                    }
-
-                    send(fd, buffer, bytes, 0); // Echo back
+                    continue;
                 }
+                buffer[bytes] = '\0';
+                printf("Received: %s\n", buffer);
+                send(fd, buffer, bytes, 0); // Echo back
+                fflush(stdout);
             }
         }
     }

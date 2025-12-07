@@ -11,7 +11,8 @@
 int main(void) {
     int sockfd;
     struct sockaddr_in server_addr;
-    char buffer[BUFFER_SIZE];
+    char read_buffer[BUFFER_SIZE];
+    char write_buffer[BUFFER_SIZE];
 
     // Create socket
     if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -36,20 +37,23 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    printf("Client connected to server at %s:%d", SERVER_IP, SERVER_PORT);
+    printf("Client connected to server at %s:%d\n", SERVER_IP, SERVER_PORT);
 
     // Send message
-    const char *msg = "Hello from client!\n";
-    send(sockfd, msg, strlen(msg), 0);
+    while (1) {
+        if (!fgets(write_buffer, sizeof(write_buffer), stdin)) {
+            break;
+        }
+        send(sockfd, write_buffer, strlen(write_buffer), 0);
 
-    // Receive echo
-    int bytes = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
-    if (bytes > 0) {
-        buffer[bytes] = '\0';
-        printf("Received from server: %s", buffer);
-    } else {
-        printf("Server closed connection");
+        // Receive echo
+        int bytes = recv(sockfd, read_buffer, sizeof(read_buffer) - 1, 0);
+        if (bytes <= 0) {
+            printf("Server closed connection\n");
+            break;
+        }
+        read_buffer[bytes] = '\0';
+        printf("Received from server: %s\n", read_buffer);
     }
-
     return 0;
-}
+};
