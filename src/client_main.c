@@ -55,11 +55,6 @@ int main(void) {
 
     // Send message
     while (1) {
-        if (!fgets(write_buffer, sizeof(write_buffer), stdin)) {
-            break;
-        }
-        send_packet(sockfd, 1, write_buffer);
-
         // Receive echo
         int bytes = recv(sockfd, read_buffer, sizeof(read_buffer) - 1, 0);
         if (bytes <= 0) {
@@ -67,7 +62,12 @@ int main(void) {
             break;
         }
         read_buffer[bytes] = '\0';
-        printf("Received from server: %s\n", read_buffer);
+        printf("%s\n", read_buffer);
+
+        if (!fgets(write_buffer, sizeof(write_buffer), stdin)) {
+            break;
+        }
+        send_packet(sockfd, 1, write_buffer);
     }
     return 0;
 };

@@ -18,7 +18,8 @@ typedef struct {
     char *name;
 } User;
 
-void recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1], int i) {
+void recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
+                 User users[MAX_CLIENTS + 1], int i) {
     MessageHeader hdr;
     if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
         close(sockfd);
@@ -40,7 +41,8 @@ void recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1], int i) {
 
     switch (hdr.msg_type) {
     case 1:
-        printf("SET_NAME: %s\n", body);
+        users[i].name = body;
+        printf("User %d set name to %s\n", i, users[i].name);
         break;
     case 2:
         printf("CHAT_MSG: %s\n", body);
@@ -53,13 +55,11 @@ void recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1], int i) {
 }
 
 int main(void) {
-    // Track users
     User users[MAX_CLIENTS + 1] = {0};
 
     int listen_fd, new_fd;
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_len = sizeof(client_addr);
-    char buffer[BUFFER_SIZE];
 
     // Create listening socket
     if ((listen_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -110,7 +110,7 @@ int main(void) {
             break;
         }
 
-        // New connection
+        // Register new connections
         if (fds[0].revents & POLLIN) {
             new_fd =
                 accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
@@ -149,7 +149,7 @@ int main(void) {
             }
         }
 
-        // Handle data from clients
+        // Handle incoming messages
         for (int i = 1; i <= MAX_CLIENTS; i++) {
             int fd = fds[i].fd;
 
@@ -158,7 +158,7 @@ int main(void) {
                 continue;
 
             if (fds[i].revents & POLLIN) {
-                recv_packet(fd, fds, i);
+                recv_packet(fd, fds, users, i);
             }
         }
     }
