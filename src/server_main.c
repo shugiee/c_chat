@@ -70,6 +70,7 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
     char *body = malloc(hdr.length + 1);
     if (!body)
         return 0;
+    body[hdr.length] = '\0';
 
     if (recv(sockfd, body, hdr.length, MSG_WAITALL) <= 0) {
         free(body);
@@ -80,28 +81,32 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
     case MSG_SET_NAME: {
         free(users[sender_idx].name);
         users[sender_idx].name = strdup(body);
-        char *template = "%s joined";
-        int len = snprintf(NULL, 0, template, body);
+        const char *template = "%s joined";
+        char *name = users[sender_idx].name;
+        int len = snprintf(NULL, 0, template, name);
         char *msg = malloc(len + 1);
         if (!msg)
             return 1;
-        snprintf(msg, len + 1, template, body);
+        snprintf(msg, len + 1, template, name);
         broadcast_msg(fds, sender_idx, msg);
         free(msg);
         break;
     }
     case MSG_CHAT: {
         // TODO: share this string-building logic in a helper file
-        char *template = "Message from %s: %s";
-        char *username = users[sender_idx].name;
+        const char *template = "Message from %s: %s";
+        char *username = strdup(users[sender_idx].name);
+        char *raw_msg = strdup(body);
 
-        int len = snprintf(NULL, 0, template, username, body);
+        int len = snprintf(NULL, 0, template, username, raw_msg);
         char *msg = malloc(len + 1);
         if (!msg)
             return 1;
-        snprintf(msg, len + 1, template, username, body);
+        snprintf(msg, len + 1, template, username, raw_msg);
         broadcast_msg(fds, sender_idx, msg);
         free(msg);
+        free(username);
+        free(raw_msg);
         break;
     }
     case MSG_DISCONNECT: {
