@@ -1,6 +1,8 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <ncurses.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -10,11 +12,42 @@
 
 #include <protocol.h>
 
-// TODO: clear input on submit
+WINDOW *msg_win;   // scrollable upper region
+WINDOW *input_win; // fixed bottom line
+
+// TODO: add borders to history and input
 
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
 #define BUFFER_SIZE 1024
+
+void init_ui() {
+    initscr();
+    cbreak();
+    noecho(); // we'll echo input manually
+    keypad(stdscr, TRUE);
+
+    int rows, cols;
+    getmaxyx(stdscr, rows, cols);
+
+    msg_win = newwin(rows - 1, cols, 0, 0);   // all but last line
+    input_win = newwin(1, cols, rows - 1, 0); // last line
+
+    scrollok(msg_win, TRUE); // allow msg_win to scroll
+    wrefresh(msg_win);
+    wrefresh(input_win);
+    nodelay(input_win,
+            TRUE); // make wgetch non-blocking; returns ERR if no input
+}
+
+// Call this from your receive thread to post an incoming message
+void post_message(const char *msg) {
+    wprintw(msg_win, "%s\n", msg);
+    wrefresh(msg_win);
+
+    // Restore cursor to input window so the draft is unaffected
+    wrefresh(input_win);
+}
 
 void make_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -47,13 +80,15 @@ void handle_sigint(int sig) {
         close(sockfd);
     }
 
+    endwin(); // restore terminal settings
     exit(0);
 };
 
 int main(void) {
     struct sockaddr_in server_addr;
     char read_buffer[BUFFER_SIZE];
-    char write_buffer[BUFFER_SIZE];
+
+    init_ui();
 
     // Register disconnect sentinel
     signal(SIGINT, handle_sigint);
@@ -92,37 +127,47 @@ int main(void) {
 
     bool has_registered = false;
 
-    printf("Client connected to server at %s:%d\n", SERVER_IP, SERVER_PORT);
+    // TODO: put this somewhere in ncurses; a popup or in initial chat history
+    // printf("Client connected to server at %s:%d\n", SERVER_IP, SERVER_PORT);
+
+    char buf[256];
+    int pos = 0;
 
     // Send message
     while (1) {
+        int ch = wgetch(input_win);
+        // Handle input
+        if (ch != ERR) {
+            if (ch == '\n') {
+                buf[pos] = '\0';
+                // TODO: split these up; one method for registration,
+                // another for chat messages
+                int msg_type = has_registered ? MSG_CHAT : MSG_SET_NAME;
+                send_packet(sockfd, msg_type, buf);
+                if (!has_registered)
+                    has_registered = true;
+                pos = 0;
+                werase(input_win);
+                wrefresh(input_win);
+            } else if (ch == KEY_BACKSPACE || ch == 127) {
+                if (pos > 0) {
+                    buf[--pos] = '\0';
+                    werase(input_win);
+                    mvwprintw(input_win, 0, 0, "%s", buf);
+                    wrefresh(input_win);
+                }
+            } else if (pos < 255) {
+                buf[pos++] = ch;
+                waddch(input_win, ch);
+                wrefresh(input_win);
+            }
+        }
+
         int ret = poll(fds, 2, -1);
         if (ret < 0) {
             perror("poll");
             break;
         }
-
-        // Register
-        if (fds[0].revents & POLLIN) {
-            ssize_t n =
-                read(STDIN_FILENO, write_buffer, sizeof(write_buffer) - 1);
-
-            if (n > 0) {
-                // Terminal uses enter to submit; don't include newline it
-                // causes!
-                if (write_buffer[n - 1] == '\n')
-                    write_buffer[n - 1] = '\0';
-                else
-                    write_buffer[n] = '\0';
-
-                // TODO: split these up; one method for registration, another
-                // for chat messages
-                int msg_type = has_registered ? MSG_CHAT : MSG_SET_NAME;
-                send_packet(sockfd, msg_type, write_buffer);
-                if (!has_registered)
-                    has_registered = true;
-            };
-        };
 
         // Receive message
         if (fds[1].revents & POLLIN) {
@@ -133,8 +178,8 @@ int main(void) {
             }
 
             read_buffer[n] = '\0';
-            printf("%s\n", read_buffer);
-            fflush(stdout);
+            post_message(read_buffer);
+            // fflush(stdout);
         };
     }
     close(sockfd);

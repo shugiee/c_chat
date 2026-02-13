@@ -8,6 +8,7 @@ BUILD_DIR := build
 CC := gcc
 CFLAGS := -Wall -Wextra -std=c23 -I$(INC_DIR) -Itests/unity
 LDLIBS := -lm
+CLIENT_LDLIBS := $(LDLIBS) -lncurses
 
 # === Collect all source files ===
 SRCS := $(shell find $(SRC_DIR) -name '*.c')
@@ -25,7 +26,7 @@ all: $(BUILD_DIR)/$(CLIENT) $(BUILD_DIR)/$(SERVER)
 
 $(BUILD_DIR)/$(CLIENT): $(CLIENT_OBJ) $(COMMON_OBJS)
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) $^ -o $@ $(CLIENT_LDLIBS)
 
 $(BUILD_DIR)/$(SERVER): $(SERVER_OBJ) $(COMMON_OBJS)
 	@mkdir -p $(BUILD_DIR)
