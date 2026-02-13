@@ -1,19 +1,36 @@
 [
   {
+    "file": "src/client_main.c",
     "arguments": [
-      "/usr/bin/gcc",
+      "gcc",
       "-Wall",
       "-Wextra",
-      "-std=c17",
+      "-std=c23",
       "-Iinclude",
       "-Itests/unity",
       "-c",
+      "src/client_main.c",
       "-o",
-      "build/main.o",
-      "src/main.c"
+      "build/client_main.o"
     ],
     "directory": "/home/jay/Documents/projects/c_chat",
-    "file": "/home/jay/Documents/projects/c_chat/src/main.c",
-    "output": "/home/jay/Documents/projects/c_chat/build/main.o"
+    "output": "build/client_main.o"
+  },
+  {
+    "file": "src/server_main.c",
+    "arguments": [
+      "gcc",
+      "-Wall",
+      "-Wextra",
+      "-std=c23",
+      "-Iinclude",
+      "-Itests/unity",
+      "-c",
+      "src/server_main.c",
+      "-o",
+      "build/server_main.o"
+    ],
+    "directory": "/home/jay/Documents/projects/c_chat",
+    "output": "build/server_main.o"
   }
 ]

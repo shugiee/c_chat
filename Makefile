@@ -6,7 +6,7 @@ INC_DIR := include
 BUILD_DIR := build
 
 CC := gcc
-CFLAGS := -Wall -Wextra -std=c17 -I$(INC_DIR) -Itests/unity
+CFLAGS := -Wall -Wextra -std=c23 -I$(INC_DIR) -Itests/unity
 LDLIBS := -lm
 
 # === Collect all source files ===

@@ -22,31 +22,46 @@ void remove_user(int user_idx, User users[MAX_CLIENTS + 1]) {
     memset(&users[user_idx], 0, sizeof(User));
 };
 
+int broadcast_msg(struct pollfd *fds, int user_idx, char *msg) {
+    for (int i = 1; i <= MAX_CLIENTS; i++) {
+        int fd = fds[i].fd;
+
+        if (i == user_idx || fd < 0) {
+            continue;
+        }
+
+        send(fd, msg, strlen(msg), 0);
+        break;
+    }
+    return 0;
+};
+
 int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
-                User users[MAX_CLIENTS + 1], int user_idx) {
+                User users[MAX_CLIENTS + 1], int sender_idx) {
     MessageHeader hdr;
     // TODO: this isn't logging when user disconnects
     if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
         // Tell other users that someone left
+        // TODO: use broadcast_msg
         for (int i = 1; i <= MAX_CLIENTS; i++) {
             int fd = fds[i].fd;
+            printf("Trying to send 'left' message to %d", i);
 
             if (fd < 0) {
                 continue;
             }
 
-            printf("Trying to send 'left' message to %d", i);
-
-            int len = snprintf(NULL, 0, "%s left", users[user_idx].name);
-            char *join_msg = malloc(len + 1);
-            if (!join_msg)
+            int len = snprintf(NULL, 0, "%s left", users[sender_idx].name);
+            char *leave_msg = malloc(len + 1);
+            if (!leave_msg)
                 return 1;
-            snprintf(join_msg, len + 1, "%s left", users[user_idx].name);
-            send(fd, join_msg, strlen(join_msg), 0);
+            snprintf(leave_msg, len + 1, "%s left", users[sender_idx].name);
+            send(fd, leave_msg, strlen(leave_msg), 0);
+            free(leave_msg);
         }
         close(sockfd);
-        fds[user_idx].fd = -1;
-        remove_user(user_idx, users);
+        fds[sender_idx].fd = -1;
+        remove_user(sender_idx, users);
         return 0;
     }
 
@@ -60,41 +75,42 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
         free(body);
         return 0;
     }
-    body[hdr.length] = '\0';
 
     switch (hdr.msg_type) {
-    case MSG_SET_NAME:
-        users[user_idx].name = body;
-        // Tell other users that someone joined
-        for (int i = 1; i <= MAX_CLIENTS; i++) {
-            int fd = fds[i].fd;
-
-            if (i == user_idx) {
-                printf("Not sending message to %d from %d", i, user_idx);
-                continue;
-            }
-            if (fd < 0 || i == user_idx) {
-                continue;
-            }
-
-            int len = snprintf(NULL, 0, "%s joined", users[user_idx].name);
-            char *join_msg = malloc(len + 1);
-            if (!join_msg)
-                return 1;
-            snprintf(join_msg, len + 1, "%s joined", users[user_idx].name);
-            send(fd, join_msg, strlen(join_msg), 0);
-            break;
-        }
+    case MSG_SET_NAME: {
+        free(users[sender_idx].name);
+        users[sender_idx].name = strdup(body);
+        char *template = "%s joined";
+        int len = snprintf(NULL, 0, template, body);
+        char *msg = malloc(len + 1);
+        if (!msg)
+            return 1;
+        snprintf(msg, len + 1, template, body);
+        broadcast_msg(fds, sender_idx, msg);
+        free(msg);
         break;
-    case MSG_CHAT:
-        printf("CHAT_MSG: %s\n", body);
+    }
+    case MSG_CHAT: {
+        // TODO: share this string-building logic in a helper file
+        char *template = "Message from %s: %s";
+        char *username = users[sender_idx].name;
+
+        int len = snprintf(NULL, 0, template, username, body);
+        char *msg = malloc(len + 1);
+        if (!msg)
+            return 1;
+        snprintf(msg, len + 1, template, username, body);
+        broadcast_msg(fds, sender_idx, msg);
+        free(msg);
         break;
-    case MSG_DISCONNECT:
+    }
+    case MSG_DISCONNECT: {
         printf("%s left\n", body);
         close(sockfd);
-        fds[user_idx].fd = -1;
-        remove_user(user_idx, users);
+        fds[sender_idx].fd = -1;
+        remove_user(sender_idx, users);
         break;
+    }
     default:
         printf("Unknown type %d\n", hdr.msg_type);
     }

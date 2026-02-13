@@ -2,12 +2,15 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include <protocol.h>
+
+// TODO: clear input on submit
 
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
@@ -38,7 +41,6 @@ void handle_sigint(int sig) {
 
     if (sockfd >= 0) {
         // Send "disconnect" message
-        uint8_t type = 99;
         const char *msg = "Client exiting";
         send_packet(sockfd, 99, msg);
         printf("Sent disconnect message to server\n");
@@ -88,6 +90,8 @@ int main(void) {
     fds[1].fd = sockfd;
     fds[1].events = POLLIN;
 
+    bool has_registered = false;
+
     printf("Client connected to server at %s:%d\n", SERVER_IP, SERVER_PORT);
 
     // Send message
@@ -98,14 +102,25 @@ int main(void) {
             break;
         }
 
-        // Composing message
+        // Register
         if (fds[0].revents & POLLIN) {
             ssize_t n =
                 read(STDIN_FILENO, write_buffer, sizeof(write_buffer) - 1);
 
             if (n > 0) {
-                write_buffer[n] = '\0';
-                send_packet(sockfd, 1, write_buffer);
+                // Terminal uses enter to submit; don't include newline it
+                // causes!
+                if (write_buffer[n - 1] == '\n')
+                    write_buffer[n - 1] = '\0';
+                else
+                    write_buffer[n] = '\0';
+
+                // TODO: split these up; one method for registration, another
+                // for chat messages
+                int msg_type = has_registered ? MSG_CHAT : MSG_SET_NAME;
+                send_packet(sockfd, msg_type, write_buffer);
+                if (!has_registered)
+                    has_registered = true;
             };
         };
 
