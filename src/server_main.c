@@ -94,7 +94,7 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
     }
     case MSG_CHAT: {
         // TODO: share this string-building logic in a helper file
-        const char *template = "Message from %s: %s";
+        const char *template = "%s: %s";
         char *username = strdup(users[sender_idx].name);
         char *raw_msg = strdup(body);
 

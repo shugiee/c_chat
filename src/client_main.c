@@ -49,11 +49,6 @@ void post_message(const char *msg) {
     wrefresh(input_win);
 }
 
-void make_nonblocking(int fd) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-};
-
 // Global so that the handle_sigint can use it
 int sockfd = -1;
 
@@ -116,12 +111,7 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    make_nonblocking(sockfd);
-    make_nonblocking(STDIN_FILENO);
-
     struct pollfd fds[2];
-    fds[0].fd = STDIN_FILENO;
-    fds[0].events = POLLIN;
     fds[1].fd = sockfd;
     fds[1].events = POLLIN;
 
@@ -163,7 +153,7 @@ int main(void) {
             }
         }
 
-        int ret = poll(fds, 2, -1);
+        int ret = poll(fds, 2, 50); // use 50ms timeout to avoid busy waiting
         if (ret < 0) {
             perror("poll");
             break;
