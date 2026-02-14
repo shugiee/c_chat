@@ -22,31 +22,45 @@ void remove_user(int user_idx, User users[MAX_CLIENTS + 1]) {
     memset(&users[user_idx], 0, sizeof(User));
 };
 
-int broadcast_msg(struct pollfd *fds, int user_idx, char *msg) {
+int broadcast_msg(struct pollfd *fds, int sender_idx, char *msg) {
     for (int i = 1; i <= MAX_CLIENTS; i++) {
         int fd = fds[i].fd;
 
-        if (i == user_idx || fd < 0) {
+        if (i == sender_idx || fd < 0) {
             continue;
         }
 
         send(fd, msg, strlen(msg), 0);
-        break;
     }
     return 0;
 };
 
+int process_and_broadcast_msg(int sender_idx, User users[MAX_CLIENTS + 1],
+                              char *body, const char *template,
+                              struct pollfd fds[MAX_CLIENTS + 1]) {
+    char *username = strdup(users[sender_idx].name);
+    char *raw_msg = strdup(body);
+
+    int len = snprintf(NULL, 0, template, username, raw_msg);
+    char *msg = malloc(len + 1);
+    if (!msg)
+        return 1;
+    snprintf(msg, len + 1, template, username, raw_msg);
+    broadcast_msg(fds, sender_idx, msg);
+    free(msg);
+    free(username);
+    free(raw_msg);
+    return 0;
+}
+
 int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
                 User users[MAX_CLIENTS + 1], int sender_idx) {
     MessageHeader hdr;
-    // TODO: this isn't logging when user disconnects
     if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
         // Tell other users that someone left
         // TODO: use broadcast_msg
         for (int i = 1; i <= MAX_CLIENTS; i++) {
             int fd = fds[i].fd;
-            printf("Trying to send 'left' message to %d", i);
-
             if (fd < 0) {
                 continue;
             }
@@ -81,39 +95,25 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
     case MSG_SET_NAME: {
         free(users[sender_idx].name);
         users[sender_idx].name = strdup(body);
+
         const char *template = "%s joined";
-        char *name = users[sender_idx].name;
-        int len = snprintf(NULL, 0, template, name);
-        char *msg = malloc(len + 1);
-        if (!msg)
-            return 1;
-        snprintf(msg, len + 1, template, name);
-        broadcast_msg(fds, sender_idx, msg);
-        free(msg);
+        process_and_broadcast_msg(sender_idx, users, body, template, fds);
         break;
     }
     case MSG_CHAT: {
         // TODO: share this string-building logic in a helper file
         const char *template = "%s: %s";
-        char *username = strdup(users[sender_idx].name);
-        char *raw_msg = strdup(body);
-
-        int len = snprintf(NULL, 0, template, username, raw_msg);
-        char *msg = malloc(len + 1);
-        if (!msg)
-            return 1;
-        snprintf(msg, len + 1, template, username, raw_msg);
-        broadcast_msg(fds, sender_idx, msg);
-        free(msg);
-        free(username);
-        free(raw_msg);
+        process_and_broadcast_msg(sender_idx, users, body, template, fds);
         break;
     }
     case MSG_DISCONNECT: {
-        printf("%s left\n", body);
+        const char *template = "%s left";
+        process_and_broadcast_msg(sender_idx, users, body, template, fds);
+
         close(sockfd);
         fds[sender_idx].fd = -1;
         remove_user(sender_idx, users);
+
         break;
     }
     default:
@@ -182,7 +182,6 @@ int main(void) {
 
         // Register new connections
         if (fds[0].revents & POLLIN) {
-            printf("New connection!");
             new_fd =
                 accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
             if (new_fd < 0) {
