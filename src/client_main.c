@@ -12,10 +12,11 @@
 
 #include <protocol.h>
 
-WINDOW *msg_win;   // scrollable upper region
+WINDOW *msg_win;   // message thread
 WINDOW *input_win; // fixed bottom line
 
 // TODO: add borders to history and input
+// TODO: show own messages in history instead of just posting them to input line
 
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
@@ -33,7 +34,6 @@ void init_ui() {
     msg_win = newwin(rows - 1, cols, 0, 0);   // all but last line
     input_win = newwin(1, cols, rows - 1, 0); // last line
 
-    scrollok(msg_win, TRUE); // allow msg_win to scroll
     wrefresh(msg_win);
     wrefresh(input_win);
     nodelay(input_win,
@@ -41,12 +41,17 @@ void init_ui() {
 }
 
 // Call this from your receive thread to post an incoming message
-void post_message(const char *msg) {
+void post_incoming_message(const char *msg) {
     wprintw(msg_win, "%s\n", msg);
     wrefresh(msg_win);
 
     // Restore cursor to input window so the draft is unaffected
     wrefresh(input_win);
+}
+
+void format_message_as_own(char buf[256], char new_buf[256], WINDOW *msg_win) {
+    int width = getmaxx(msg_win);
+    snprintf(new_buf, 256, "%*s", width, buf);
 }
 
 // Global so that the handle_sigint can use it
@@ -134,6 +139,9 @@ int main(void) {
                 // another for chat messages
                 int msg_type = has_registered ? MSG_CHAT : MSG_SET_NAME;
                 send_packet(sockfd, msg_type, buf);
+                char new_buf[256];
+                format_message_as_own(buf, new_buf, msg_win);
+                post_incoming_message(new_buf);
                 if (!has_registered)
                     has_registered = true;
                 pos = 0;
@@ -168,7 +176,7 @@ int main(void) {
             }
 
             read_buffer[n] = '\0';
-            post_message(read_buffer);
+            post_incoming_message(read_buffer);
             // fflush(stdout);
         };
     }
