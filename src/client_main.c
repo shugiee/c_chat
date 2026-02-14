@@ -68,7 +68,7 @@ void init_ui() {
 }
 
 // Call this from your receive thread to post an incoming message
-void post_incoming_message(const char *msg) {
+void post_message(const char *msg) {
     wprintw(msg_win.inner, "%s\n", msg);
     refresh_bordered_window(&msg_win);
 
@@ -79,6 +79,12 @@ void post_incoming_message(const char *msg) {
 void format_message_as_own(char buf[256], char new_buf[256], WINDOW *msg_win) {
     int width = getmaxx(msg_win);
     snprintf(new_buf, 256, "%*s", width, buf);
+}
+
+void format_message_as_alert(char buf[256], char new_buf[256],
+                             WINDOW *msg_win) {
+    int width = getmaxx(msg_win);
+    snprintf(new_buf, 256, "%*s%s", (width - (int)strlen(buf)) / 2, "", buf);
 }
 
 // Global so that the handle_sigint can use it
@@ -110,6 +116,17 @@ void handle_sigint(int sig) {
     endwin(); // restore terminal settings
     exit(0);
 };
+
+void log_successful_connection() {
+    char raw_connection_alert[256];
+    snprintf(raw_connection_alert, 256, "Client connected to server at %s:%d\n",
+             SERVER_IP, SERVER_PORT);
+    char formatted_connection_alert[256];
+    format_message_as_alert(raw_connection_alert, formatted_connection_alert,
+                            msg_win.inner);
+
+    post_message(formatted_connection_alert);
+}
 
 int main(void) {
     struct sockaddr_in server_addr;
@@ -149,8 +166,7 @@ int main(void) {
 
     bool has_registered = false;
 
-    // TODO: put this somewhere in ncurses; a popup or in initial chat history
-    // printf("Client connected to server at %s:%d\n", SERVER_IP, SERVER_PORT);
+    log_successful_connection();
 
     char buf[256];
     int pos = 0;
@@ -168,7 +184,7 @@ int main(void) {
                 send_packet(sockfd, msg_type, buf);
                 char new_buf[256];
                 format_message_as_own(buf, new_buf, msg_win.inner);
-                post_incoming_message(new_buf);
+                post_message(new_buf);
                 if (!has_registered)
                     has_registered = true;
                 pos = 0;
@@ -203,8 +219,7 @@ int main(void) {
             }
 
             read_buffer[n] = '\0';
-            post_incoming_message(read_buffer);
-            // fflush(stdout);
+            post_message(read_buffer);
         };
     }
     close(sockfd);
