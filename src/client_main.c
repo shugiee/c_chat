@@ -20,12 +20,11 @@ typedef struct {
 BorderedWindow msg_win;   // message thread
 BorderedWindow input_win; // fixed bottom line
 
-// TODO: add borders to history and input
-// TODO: show own messages in history instead of just posting them to input line
-
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
 #define BUFFER_SIZE 1024
+
+char sender_name[64];
 
 BorderedWindow make_bordered_window(int rows, int cols, int y, int x) {
     BorderedWindow bw;
@@ -91,15 +90,23 @@ void format_message_as_alert(char buf[256], char new_buf[256],
 int sockfd = -1;
 
 void send_packet(int sockfd, uint8_t type, const char *body) {
+    // sender_name must be set before sending any messages
+    if (sender_name[0] == '\0') {
+        fprintf(stderr, "Error: sender_name is not set\n");
+        return;
+    }
+
     MessageHeader hdr;
     hdr.version = 1;
     hdr.msg_type = type;
     hdr.flags = 0;
-    hdr.length = htonl(strlen(body)); // convert to network byte order
-
-    // write header + body
+    hdr.length = htonl(sizeof(MessageBody)); // convert to network byte order
     send(sockfd, &hdr, sizeof(hdr), 0);
-    send(sockfd, body, strlen(body), 0);
+
+    MessageBody msg;
+    strcpy(msg.sender_name, sender_name);
+    strcpy(msg.body, body);
+    send(sockfd, &msg, sizeof(MessageBody), 0);
 }
 
 void handle_sigint(int sig) {
@@ -117,6 +124,52 @@ void handle_sigint(int sig) {
     exit(0);
 };
 
+int recv_packet(struct pollfd, MessageBody *message_body) {
+    MessageHeader hdr;
+
+    // Receive header
+    if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
+        // Server disconnected; client should too
+        printf("Server disconnected\n");
+        return -1;
+    }
+
+    hdr.length = ntohl(hdr.length); // convert network to local
+
+    // Receive real message; use header's length to know how much to read
+    ssize_t n = recv(sockfd, message_body, hdr.length, 0);
+    if (n <= 0) {
+        printf("Error receiving message body\n");
+        return -1;
+    }
+
+    message_body->body[n] = '\0';
+
+    switch (hdr.msg_type) {
+    case MSG_ASK_FOR_NAME: {
+        post_message(message_body->body);
+        // TODO:
+        break;
+    }
+    case MSG_USER_JOINED: {
+        // TODO:
+        break;
+    }
+    case MSG_USER_DISCONNECTED: {
+        // TODO:
+        break;
+    }
+    case MSG_CHAT: {
+        post_message(message_body->body);
+        break;
+    }
+    default:
+        printf("Unknown type %d\n", hdr.msg_type);
+    }
+
+    return 0;
+}
+
 void log_successful_connection() {
     char raw_connection_alert[256];
     snprintf(raw_connection_alert, 256, "Client connected to server at %s:%d\n",
@@ -130,7 +183,7 @@ void log_successful_connection() {
 
 int main(void) {
     struct sockaddr_in server_addr;
-    char read_buffer[BUFFER_SIZE];
+    MessageBody message_body;
 
     init_ui();
 
@@ -181,12 +234,15 @@ int main(void) {
                 // TODO: split these up; one method for registration,
                 // another for chat messages
                 int msg_type = has_registered ? MSG_CHAT : MSG_SET_NAME;
+                // Must update sender_name before sending the message!
+                if (!has_registered) {
+                    strcpy(sender_name, buf);
+                    has_registered = true;
+                }
                 send_packet(sockfd, msg_type, buf);
                 char new_buf[256];
                 format_message_as_own(buf, new_buf, msg_win.inner);
                 post_message(new_buf);
-                if (!has_registered)
-                    has_registered = true;
                 pos = 0;
                 werase(input_win.inner);
                 refresh_bordered_window(&input_win);
@@ -212,14 +268,9 @@ int main(void) {
 
         // Receive message
         if (fds[1].revents & POLLIN) {
-            ssize_t n = recv(sockfd, read_buffer, sizeof(read_buffer) - 1, 0);
-            if (n <= 0) {
-                printf("Server disconnected\n");
+            if (recv_packet(fds[1], &message_body) < 0) {
                 break;
             }
-
-            read_buffer[n] = '\0';
-            post_message(read_buffer);
         };
     }
     close(sockfd);

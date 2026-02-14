@@ -8,6 +8,11 @@ typedef struct {
     uint16_t flags;
     uint32_t length;
 } MessageHeader;
+
+typedef struct {
+    char sender_name[64];
+    char body[1024];
+} MessageBody;
 #pragma pack(pop)
 
 // Shared enum for message types
@@ -16,5 +21,8 @@ enum MessageType {
     MSG_SET_NAME = 1,
     MSG_CHAT = 2,
     MSG_PING = 3,
+    MSG_USER_JOINED = 4,
+    MSG_USER_DISCONNECTED = 5,
+    MSG_ASK_FOR_NAME = 6,
     MSG_DISCONNECT = 99
 };

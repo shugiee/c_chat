@@ -22,7 +22,8 @@ void remove_user(int user_idx, User users[MAX_CLIENTS + 1]) {
     memset(&users[user_idx], 0, sizeof(User));
 };
 
-int broadcast_msg(struct pollfd *fds, int sender_idx, char *msg) {
+int broadcast_msg(struct pollfd *fds, int sender_idx, MessageHeader *hdr,
+                  MessageBody *body) {
     for (int i = 1; i <= MAX_CLIENTS; i++) {
         int fd = fds[i].fd;
 
@@ -30,36 +31,29 @@ int broadcast_msg(struct pollfd *fds, int sender_idx, char *msg) {
             continue;
         }
 
-        send(fd, msg, strlen(msg), 0);
+        send(fd, hdr, sizeof(*hdr), 0);
+        send(fd, body, sizeof(*body), 0);
     }
     return 0;
 };
-
-int process_and_broadcast_msg(int sender_idx, User users[MAX_CLIENTS + 1],
-                              char *body, const char *template,
-                              struct pollfd fds[MAX_CLIENTS + 1]) {
-    char *username = strdup(users[sender_idx].name);
-    char *raw_msg = strdup(body);
-
-    int len = snprintf(NULL, 0, template, username, raw_msg);
-    char *msg = malloc(len + 1);
-    if (!msg)
-        return 1;
-    snprintf(msg, len + 1, template, username, raw_msg);
-    broadcast_msg(fds, sender_idx, msg);
-    free(msg);
-    free(username);
-    free(raw_msg);
-    return 0;
-}
 
 int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
                 User users[MAX_CLIENTS + 1], int sender_idx) {
     MessageHeader hdr;
     if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
-        // Tell other users that someone left
-        const char *template = "%s left";
-        process_and_broadcast_msg(sender_idx, users, "", template, fds);
+        // Tell other users that someone left; clients assume a body is coming;
+        // use an empty one
+        MessageBody message_body;
+        strcpy(message_body.sender_name, users[sender_idx].name);
+        strcpy(message_body.body, "");
+
+        MessageHeader hdr;
+        hdr.version = 1;
+        hdr.msg_type = MSG_USER_DISCONNECTED;
+        hdr.flags = 0;
+        hdr.length =
+            htonl(sizeof(MessageBody)); // convert to network byte order
+        broadcast_msg(fds, sender_idx, &hdr, &message_body);
         close(sockfd);
         fds[sender_idx].fd = -1;
         remove_user(sender_idx, users);
@@ -68,36 +62,47 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
 
     hdr.length = ntohl(hdr.length); // convert network to local
 
-    char *body = malloc(hdr.length + 1);
-    if (!body)
-        return 0;
-    body[hdr.length] = '\0';
-
-    if (recv(sockfd, body, hdr.length, MSG_WAITALL) <= 0) {
-        free(body);
+    // TODO: is this the right way to do this? I think i now need a mesasgebody
+    // instead of an array?
+    MessageBody message_body;
+    if (recv(sockfd, &message_body, hdr.length, MSG_WAITALL) <= 0) {
+        // TODO: free?
         return 0;
     }
 
     switch (hdr.msg_type) {
     case MSG_SET_NAME: {
         free(users[sender_idx].name);
-        users[sender_idx].name = strdup(body);
+        users[sender_idx].name = strdup(message_body.body);
 
-        const char *template = "%s joined";
-        process_and_broadcast_msg(sender_idx, users, body, template, fds);
+        MessageHeader hdr;
+        hdr.version = 1;
+        hdr.msg_type = MSG_USER_JOINED;
+        hdr.flags = 0;
+        hdr.length =
+            htonl(sizeof(MessageBody)); // convert to network byte order
+        broadcast_msg(fds, sender_idx, &hdr, &message_body);
         break;
     }
     case MSG_CHAT: {
-        // TODO: share this string-building logic in a helper file
-        const char *template = "%s: %s";
-        process_and_broadcast_msg(sender_idx, users, body, template, fds);
+        MessageHeader hdr;
+        hdr.version = 1;
+        hdr.msg_type = MSG_CHAT;
+        hdr.flags = 0;
+        // TODO: use real length
+        hdr.length =
+            htonl(sizeof(MessageBody)); // convert to network byte order
+        // TODO: reuse name
+        char *username = strdup(users[sender_idx].name);
+        broadcast_msg(fds, sender_idx, &hdr, &message_body);
+        free(username);
         break;
     }
     default:
         printf("Unknown type %d\n", hdr.msg_type);
     }
 
-    free(body);
+    // TODO: free?
     return 0;
 }
 
@@ -168,7 +173,19 @@ int main(void) {
 
             // Get their name
             char *ask_for_name = "Hi there and welcome. What's your name?\n";
-            send(new_fd, ask_for_name, strlen(ask_for_name), 0);
+            MessageHeader hdr;
+            hdr.version = 1;
+            hdr.msg_type = MSG_ASK_FOR_NAME;
+            hdr.flags = 0;
+            hdr.length =
+                htonl(sizeof(MessageBody)); // convert to network byte order
+
+            MessageBody body;
+            strcpy(body.sender_name, "Server");
+            strcpy(body.body, ask_for_name);
+
+            send(new_fd, &hdr, sizeof(hdr), 0);
+            send(new_fd, &body, sizeof(body), 0);
 
             // Register user
             for (int i = 1; i <= MAX_CLIENTS; i++) {
