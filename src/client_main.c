@@ -24,7 +24,7 @@ BorderedWindow input_win; // fixed bottom line
 #define SERVER_PORT 18000
 #define BUFFER_SIZE 1024
 
-char sender_name[64];
+char current_user_name[64];
 
 BorderedWindow make_bordered_window(int rows, int cols, int y, int x) {
     BorderedWindow bw;
@@ -90,9 +90,9 @@ void format_message_as_alert(char buf[256], char new_buf[256],
 int sockfd = -1;
 
 void send_packet(int sockfd, uint8_t type, const char *body) {
-    // sender_name must be set before sending any messages
-    if (sender_name[0] == '\0') {
-        fprintf(stderr, "Error: sender_name is not set\n");
+    // current_user_name must be set before sending any messages
+    if (current_user_name[0] == '\0') {
+        fprintf(stderr, "Error: current_user_name is not set\n");
         return;
     }
 
@@ -104,7 +104,7 @@ void send_packet(int sockfd, uint8_t type, const char *body) {
     send(sockfd, &hdr, sizeof(hdr), 0);
 
     MessageBody msg;
-    strcpy(msg.sender_name, sender_name);
+    strcpy(msg.sender_name, current_user_name);
     strcpy(msg.body, body);
     send(sockfd, &msg, sizeof(MessageBody), 0);
 }
@@ -123,6 +123,34 @@ void handle_sigint(int sig) {
     endwin(); // restore terminal settings
     exit(0);
 };
+
+void log_user_joined(MessageBody *message_body) {
+    char user_joined_alert[256];
+    snprintf(user_joined_alert, 256, "%s joined!\n", message_body->sender_name);
+    char formatted_user_joined_alert[256];
+    format_message_as_alert(user_joined_alert, formatted_user_joined_alert,
+                            msg_win.inner);
+    post_message(formatted_user_joined_alert);
+}
+
+void log_user_left(MessageBody *message_body) {
+    char user_left_alert[256];
+    snprintf(user_left_alert, 256, "%s left\n", message_body->sender_name);
+    char formatted_user_left_alert[256];
+    format_message_as_alert(user_left_alert, formatted_user_left_alert,
+                            msg_win.inner);
+    post_message(formatted_user_left_alert);
+}
+
+void log_successful_connection() {
+    char raw_connection_alert[256];
+    snprintf(raw_connection_alert, 256, "Client connected to server at %s:%d\n",
+             SERVER_IP, SERVER_PORT);
+    char formatted_connection_alert[256];
+    format_message_as_alert(raw_connection_alert, formatted_connection_alert,
+                            msg_win.inner);
+    post_message(formatted_connection_alert);
+}
 
 int recv_packet(struct pollfd, MessageBody *message_body) {
     MessageHeader hdr;
@@ -147,20 +175,23 @@ int recv_packet(struct pollfd, MessageBody *message_body) {
 
     switch (hdr.msg_type) {
     case MSG_ASK_FOR_NAME: {
+        // TODO: give this its own UI before joining the room
         post_message(message_body->body);
-        // TODO:
         break;
     }
     case MSG_USER_JOINED: {
-        // TODO:
+        log_user_joined(message_body);
         break;
     }
     case MSG_USER_DISCONNECTED: {
-        // TODO:
+        log_user_left(message_body);
         break;
     }
     case MSG_CHAT: {
-        post_message(message_body->body);
+        char formatted_msg[256];
+        snprintf(formatted_msg, 256, "%s\n%s\n", message_body->sender_name,
+                 message_body->body);
+        post_message(formatted_msg);
         break;
     }
     default:
@@ -168,17 +199,6 @@ int recv_packet(struct pollfd, MessageBody *message_body) {
     }
 
     return 0;
-}
-
-void log_successful_connection() {
-    char raw_connection_alert[256];
-    snprintf(raw_connection_alert, 256, "Client connected to server at %s:%d\n",
-             SERVER_IP, SERVER_PORT);
-    char formatted_connection_alert[256];
-    format_message_as_alert(raw_connection_alert, formatted_connection_alert,
-                            msg_win.inner);
-
-    post_message(formatted_connection_alert);
 }
 
 int main(void) {
@@ -234,9 +254,9 @@ int main(void) {
                 // TODO: split these up; one method for registration,
                 // another for chat messages
                 int msg_type = has_registered ? MSG_CHAT : MSG_SET_NAME;
-                // Must update sender_name before sending the message!
+                // Must update current_user_name before sending the message!
                 if (!has_registered) {
-                    strcpy(sender_name, buf);
+                    strcpy(current_user_name, buf);
                     has_registered = true;
                 }
                 send_packet(sockfd, msg_type, buf);
