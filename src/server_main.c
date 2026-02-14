@@ -58,21 +58,8 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
     MessageHeader hdr;
     if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
         // Tell other users that someone left
-        // TODO: use broadcast_msg
-        for (int i = 1; i <= MAX_CLIENTS; i++) {
-            int fd = fds[i].fd;
-            if (fd < 0) {
-                continue;
-            }
-
-            int len = snprintf(NULL, 0, "%s left", users[sender_idx].name);
-            char *leave_msg = malloc(len + 1);
-            if (!leave_msg)
-                return 1;
-            snprintf(leave_msg, len + 1, "%s left", users[sender_idx].name);
-            send(fd, leave_msg, strlen(leave_msg), 0);
-            free(leave_msg);
-        }
+        const char *template = "%s left";
+        process_and_broadcast_msg(sender_idx, users, "", template, fds);
         close(sockfd);
         fds[sender_idx].fd = -1;
         remove_user(sender_idx, users);
@@ -104,16 +91,6 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
         // TODO: share this string-building logic in a helper file
         const char *template = "%s: %s";
         process_and_broadcast_msg(sender_idx, users, body, template, fds);
-        break;
-    }
-    case MSG_DISCONNECT: {
-        const char *template = "%s left";
-        process_and_broadcast_msg(sender_idx, users, body, template, fds);
-
-        close(sockfd);
-        fds[sender_idx].fd = -1;
-        remove_user(sender_idx, users);
-
         break;
     }
     default:
