@@ -12,8 +12,13 @@
 
 #include <protocol.h>
 
-WINDOW *msg_win;   // message thread
-WINDOW *input_win; // fixed bottom line
+typedef struct {
+    WINDOW *outer;
+    WINDOW *inner;
+} BorderedWindow;
+
+BorderedWindow msg_win;   // message thread
+BorderedWindow input_win; // fixed bottom line
 
 // TODO: add borders to history and input
 // TODO: show own messages in history instead of just posting them to input line
@@ -21,6 +26,27 @@ WINDOW *input_win; // fixed bottom line
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
 #define BUFFER_SIZE 1024
+
+BorderedWindow make_bordered_window(int rows, int cols, int y, int x) {
+    BorderedWindow bw;
+    bw.outer = newwin(rows, cols, y, x);
+    box(bw.outer, 0, 0); // draw border
+    wrefresh(bw.outer);
+
+    // inner window is 2 smaller in each dimension, offset by 1
+    bw.inner = derwin(bw.outer, rows - 2, cols - 2, 1, 1);
+    return bw;
+}
+
+void free_bordered_window(BorderedWindow *bw) {
+    delwin(bw->inner);
+    delwin(bw->outer);
+}
+
+void refresh_bordered_window(BorderedWindow *bw) {
+    touchwin(bw->outer);
+    wrefresh(bw->inner);
+}
 
 void init_ui() {
     initscr();
@@ -31,22 +57,23 @@ void init_ui() {
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
 
-    msg_win = newwin(rows - 1, cols, 0, 0);   // all but last line
-    input_win = newwin(1, cols, rows - 1, 0); // last line
+    msg_win = make_bordered_window(rows - 3, cols, 0, 0);   // all but last line
+    input_win = make_bordered_window(3, cols, rows - 3, 0); // last line
 
-    wrefresh(msg_win);
-    wrefresh(input_win);
-    nodelay(input_win,
-            TRUE); // make wgetch non-blocking; returns ERR if no input
+    refresh_bordered_window(&msg_win);
+    refresh_bordered_window(&input_win);
+
+    // make wgetch non-blocking; returns ERR if no input
+    nodelay(input_win.inner, TRUE);
 }
 
 // Call this from your receive thread to post an incoming message
 void post_incoming_message(const char *msg) {
-    wprintw(msg_win, "%s\n", msg);
-    wrefresh(msg_win);
+    wprintw(msg_win.inner, "%s\n", msg);
+    refresh_bordered_window(&msg_win);
 
     // Restore cursor to input window so the draft is unaffected
-    wrefresh(input_win);
+    refresh_bordered_window(&input_win);
 }
 
 void format_message_as_own(char buf[256], char new_buf[256], WINDOW *msg_win) {
@@ -130,7 +157,7 @@ int main(void) {
 
     // Send message
     while (1) {
-        int ch = wgetch(input_win);
+        int ch = wgetch(input_win.inner);
         // Handle input
         if (ch != ERR) {
             if (ch == '\n') {
@@ -140,24 +167,24 @@ int main(void) {
                 int msg_type = has_registered ? MSG_CHAT : MSG_SET_NAME;
                 send_packet(sockfd, msg_type, buf);
                 char new_buf[256];
-                format_message_as_own(buf, new_buf, msg_win);
+                format_message_as_own(buf, new_buf, msg_win.inner);
                 post_incoming_message(new_buf);
                 if (!has_registered)
                     has_registered = true;
                 pos = 0;
-                werase(input_win);
-                wrefresh(input_win);
+                werase(input_win.inner);
+                refresh_bordered_window(&input_win);
             } else if (ch == KEY_BACKSPACE || ch == 127) {
                 if (pos > 0) {
                     buf[--pos] = '\0';
-                    werase(input_win);
-                    mvwprintw(input_win, 0, 0, "%s", buf);
-                    wrefresh(input_win);
+                    werase(input_win.inner);
+                    mvwprintw(input_win.inner, 0, 0, "%s", buf);
+                    refresh_bordered_window(&input_win);
                 }
             } else if (pos < 255) {
                 buf[pos++] = ch;
-                waddch(input_win, ch);
-                wrefresh(input_win);
+                waddch(input_win.inner, ch);
+                refresh_bordered_window(&input_win);
             }
         }
 
@@ -181,5 +208,7 @@ int main(void) {
         };
     }
     close(sockfd);
+    free_bordered_window(&input_win);
+    free_bordered_window(&msg_win);
     return 0;
 };
