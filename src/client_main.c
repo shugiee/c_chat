@@ -47,8 +47,19 @@ void refresh_bordered_window(BorderedWindow *bw) {
     wrefresh(bw->inner);
 }
 
+int get_number_idx_from_name(char *sender_name) {
+    unsigned int sum = 0;
+    for (int i = 0; sender_name[i] != 0; i++) {
+        // Multiply by a small prime > 10 to calculate anagrams differently
+        sum = sum * 11 + sender_name[i];
+    }
+    return sum % 10;
+}
+
 void init_ui() {
     initscr();
+    start_color();
+    use_default_colors();
     cbreak();
     noecho(); // we'll echo input manually
     keypad(stdscr, TRUE);
@@ -62,6 +73,18 @@ void init_ui() {
     refresh_bordered_window(&msg_win);
     refresh_bordered_window(&input_win);
 
+    init_pair(0, -1, -1);
+    init_pair(1, COLOR_RED, -1);
+    init_pair(2, COLOR_GREEN, -1);
+    init_pair(3, COLOR_BLUE, -1);
+    init_pair(4, COLOR_CYAN, -1);
+    init_pair(5, COLOR_MAGENTA, -1);
+    init_pair(6, COLOR_YELLOW, -1);
+    init_pair(7, COLOR_RED, -1);
+    init_pair(8, COLOR_GREEN, -1);
+    init_pair(9, COLOR_BLUE, -1);
+    init_pair(10, COLOR_MAGENTA, -1);
+
     // make wgetch non-blocking; returns ERR if no input
     nodelay(input_win.inner, TRUE);
 }
@@ -73,6 +96,14 @@ void post_message(const char *msg) {
 
     // Restore cursor to input window so the draft is unaffected
     refresh_bordered_window(&input_win);
+}
+
+void post_message_with_flair(const char *msg, char *sender_name) {
+    int color_pair_number = get_number_idx_from_name(sender_name);
+    wattron(msg_win.inner, COLOR_PAIR(color_pair_number));
+    post_message(msg);
+    // Reset colors
+    wattroff(msg_win.inner, COLOR_PAIR(color_pair_number));
 }
 
 void format_message_as_own(char buf[256], char new_buf[256], WINDOW *msg_win) {
@@ -130,7 +161,8 @@ void log_user_joined(MessageBody *message_body) {
     char formatted_user_joined_alert[256];
     format_message_as_alert(user_joined_alert, formatted_user_joined_alert,
                             msg_win.inner);
-    post_message(formatted_user_joined_alert);
+    post_message_with_flair(formatted_user_joined_alert,
+                            message_body->sender_name);
 }
 
 void log_user_left(MessageBody *message_body) {
@@ -139,7 +171,8 @@ void log_user_left(MessageBody *message_body) {
     char formatted_user_left_alert[256];
     format_message_as_alert(user_left_alert, formatted_user_left_alert,
                             msg_win.inner);
-    post_message(formatted_user_left_alert);
+    post_message_with_flair(formatted_user_left_alert,
+                            message_body->sender_name);
 }
 
 void log_successful_connection() {
@@ -191,7 +224,7 @@ int recv_packet(struct pollfd, MessageBody *message_body) {
         char formatted_msg[256];
         snprintf(formatted_msg, 256, "%s\n%s\n", message_body->sender_name,
                  message_body->body);
-        post_message(formatted_msg);
+        post_message_with_flair(formatted_msg, message_body->sender_name);
         break;
     }
     default:
