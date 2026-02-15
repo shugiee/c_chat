@@ -62,8 +62,6 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
 
     hdr.length = ntohl(hdr.length); // convert network to local
 
-    // TODO: is this the right way to do this? I think i now need a mesasgebody
-    // instead of an array?
     MessageBody message_body;
     if (recv(sockfd, &message_body, hdr.length, MSG_WAITALL) <= 0) {
         // TODO: free?
@@ -93,6 +91,17 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
         hdr.length =
             htonl(sizeof(MessageBody)); // convert to network byte order
         // TODO: reuse name
+        char *username = strdup(users[sender_idx].name);
+        broadcast_msg(fds, sender_idx, &hdr, &message_body);
+        free(username);
+        break;
+    }
+    case MSG_DISCONNECT: {
+        MessageHeader hdr;
+        hdr.version = 1;
+        hdr.msg_type = MSG_USER_DISCONNECTED;
+        hdr.flags = 0;
+        hdr.length = htonl(sizeof(MessageBody));
         char *username = strdup(users[sender_idx].name);
         broadcast_msg(fds, sender_idx, &hdr, &message_body);
         free(username);

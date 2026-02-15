@@ -148,7 +148,7 @@ void handle_sigint(int sig) {
     if (sockfd >= 0) {
         // Send "disconnect" message
         const char *msg = "Client exiting";
-        send_packet(sockfd, 99, msg);
+        send_packet(sockfd, MSG_DISCONNECT, msg);
         printf("Sent disconnect message to server\n");
         close(sockfd);
     }
