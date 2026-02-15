@@ -9,6 +9,7 @@ CC := gcc
 CFLAGS := -Wall -Wextra -std=c23 -I$(INC_DIR) -Itests/unity
 LDLIBS := -lm
 CLIENT_LDLIBS := $(LDLIBS) -lncurses
+SERVER_LDLIBS := $(LDLIBS) -lpq
 
 # === Collect all source files ===
 SRCS := $(shell find $(SRC_DIR) -name '*.c')
@@ -30,7 +31,7 @@ $(BUILD_DIR)/$(CLIENT): $(CLIENT_OBJ) $(COMMON_OBJS)
 
 $(BUILD_DIR)/$(SERVER): $(SERVER_OBJ) $(COMMON_OBJS)
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) $^ -o $@ $(SERVER_LDLIBS)
 
 # === Compile each .c into .o ===
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
@@ -38,13 +39,19 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # === Convenience targets ===
-.PHONY: all run run-server run-client clean test
+.PHONY: all run run-server run-client clean test run-db stop-db
 
 run-server: $(BUILD_DIR)/$(SERVER)
 	./$(BUILD_DIR)/$(SERVER)
 
 run-client: $(BUILD_DIR)/$(CLIENT)
 	./$(BUILD_DIR)/$(CLIENT)
+
+run-db:
+	docker compose -f db/docker-compose.yml up -d
+
+stop-db:
+	docker compose -f db/docker-compose.yml down
 
 clean:
 	rm -rf $(BUILD_DIR)

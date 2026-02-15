@@ -1,0 +1,14 @@
+# docker-compose.yml
+services:
+  postgres:
+    image: postgres:18
+    container_name: chat_db
+    environment:
+      POSTGRES_USER: chatuser
+      POSTGRES_PASSWORD: chatpass
+      POSTGRES_DB: chatapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
