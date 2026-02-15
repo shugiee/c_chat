@@ -70,6 +70,8 @@ void init_ui() {
     msg_win = make_bordered_window(rows - 3, cols, 0, 0);   // all but last line
     input_win = make_bordered_window(3, cols, rows - 3, 0); // last line
 
+    scrollok(msg_win.inner, TRUE); // allow msg_win to scroll
+
     refresh_bordered_window(&msg_win);
     refresh_bordered_window(&input_win);
 
@@ -283,6 +285,8 @@ int main(void) {
         // Handle input
         if (ch != ERR) {
             if (ch == '\n') {
+                if (buf[0] == '\0')
+                    continue;
                 buf[pos] = '\0';
                 // TODO: split these up; one method for registration,
                 // another for chat messages
