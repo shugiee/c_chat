@@ -223,15 +223,18 @@ int recv_packet(struct pollfd, MessageBody *message_body) {
         break;
     }
     case MSG_CHAT: {
-        char formatted_msg[256];
-        snprintf(formatted_msg, 256, "%s\n%s\n", message_body->sender_name,
-                 message_body->body);
-        post_message_with_flair(formatted_msg, message_body->sender_name);
+        wattron(msg_win.inner, A_DIM); // Turn on the dim attribute
+        post_message_with_flair(message_body->sender_name,
+                                message_body->sender_name);
+        wattroff(msg_win.inner, A_DIM);
+        post_message_with_flair(message_body->body, message_body->sender_name);
         break;
     }
     default:
         printf("Unknown type %d\n", hdr.msg_type);
     }
+    // Post one empty message to force a final newline
+    post_message("");
 
     return 0;
 }
