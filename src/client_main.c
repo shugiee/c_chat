@@ -223,6 +223,8 @@ int recv_packet(struct pollfd, MessageBody *message_body) {
         break;
     }
     case MSG_CHAT: {
+        // TODO: handle own messages that are received over the wire from
+        // history!
         wattron(msg_win.inner, A_DIM); // Turn on the dim attribute
         post_message_with_flair(message_body->sender_name,
                                 message_body->sender_name);

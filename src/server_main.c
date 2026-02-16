@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <libpq-fe.h>
 #include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -22,6 +23,60 @@ void remove_user(int user_idx, User users[MAX_CLIENTS + 1]) {
     memset(&users[user_idx], 0, sizeof(User));
 };
 
+int load_history(PGconn *conn, MessageBody **messages) {
+    PGresult *res = PQexecParams(
+        conn, "SELECT sender, content FROM messages ORDER BY sent_at", 0, NULL,
+        NULL, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+        fprintf(stderr, "SELECT failed: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        return 1;
+    }
+
+    int rows = PQntuples(res);
+
+    MessageBody *results = malloc(rows * sizeof(MessageBody));
+
+    for (int row = 0; row < rows; row++) {
+        strncpy(results[row].sender_name, PQgetvalue(res, row, 0),
+                sizeof(results[row].sender_name) - 1);
+        strncpy(results[row].body, PQgetvalue(res, row, 1),
+                sizeof(results[row].body) - 1);
+        *messages = results;
+    };
+    return rows;
+}
+
+int send_message_to_user(char *message, char *sender_name, struct pollfd fd) {
+    MessageHeader hdr;
+    hdr.version = 1;
+    hdr.msg_type = MSG_CHAT;
+    hdr.flags = 0;
+    hdr.length = htonl(sizeof(MessageBody)); // convert to network byte order
+
+    MessageBody body;
+    strcpy(body.sender_name, sender_name);
+    strcpy(body.body, message);
+
+    send(fd.fd, &hdr, sizeof(hdr), 0);
+    send(fd.fd, &body, sizeof(body), 0);
+
+    return 0;
+}
+
+int send_history_to_user(struct pollfd *fds, int sender_idx, PGconn *conn) {
+    MessageBody *messages;
+    int num_messages = load_history(conn, &messages);
+    struct pollfd fd = fds[sender_idx];
+
+    for (int i = 0; i < num_messages; i++) {
+        send_message_to_user(messages[i].body, messages[i].sender_name, fd);
+    }
+
+    return 0;
+}
+
 int broadcast_msg(struct pollfd *fds, int sender_idx, MessageHeader *hdr,
                   MessageBody *body) {
     for (int i = 1; i <= MAX_CLIENTS; i++) {
@@ -30,19 +85,26 @@ int broadcast_msg(struct pollfd *fds, int sender_idx, MessageHeader *hdr,
         if (i == sender_idx || fd < 0) {
             continue;
         }
-
         send(fd, hdr, sizeof(*hdr), 0);
         send(fd, body, sizeof(*body), 0);
     }
     return 0;
 };
 
+int persist_message(char *message, char *author_name, PGconn *conn) {
+    PGresult *res = PQexecParams(
+        conn, "INSERT INTO messages (sender, content) VALUES ($1, $2)", 2, NULL,
+        (const char *[]){author_name, message}, NULL, NULL, 0);
+    PQclear(res);
+    return 0;
+};
+
 int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
-                User users[MAX_CLIENTS + 1], int sender_idx) {
+                User users[MAX_CLIENTS + 1], int sender_idx, PGconn *conn) {
     MessageHeader hdr;
     if (recv(sockfd, &hdr, sizeof(hdr), MSG_WAITALL) <= 0) {
-        // Tell other users that someone left; clients assume a body is coming;
-        // use an empty one
+        // Tell other users that someone left; clients assume a body is
+        // coming; use an empty one
         MessageBody message_body;
         strcpy(message_body.sender_name, users[sender_idx].name);
         strcpy(message_body.body, "");
@@ -80,6 +142,7 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
         hdr.length =
             htonl(sizeof(MessageBody)); // convert to network byte order
         broadcast_msg(fds, sender_idx, &hdr, &message_body);
+        send_history_to_user(fds, sender_idx, conn);
         break;
     }
     case MSG_CHAT: {
@@ -94,6 +157,7 @@ int recv_packet(int sockfd, struct pollfd fds[MAX_CLIENTS + 1],
         char *username = strdup(users[sender_idx].name);
         broadcast_msg(fds, sender_idx, &hdr, &message_body);
         free(username);
+        persist_message(message_body.body, message_body.sender_name, conn);
         break;
     }
     case MSG_DISCONNECT: {
@@ -147,6 +211,15 @@ int main(void) {
     if (listen(listen_fd, 5) < 0) {
         perror("listen");
         close(listen_fd);
+        exit(1);
+    }
+
+    // Connect to chat DB
+    PGconn *conn = PQconnectdb("host=localhost port=5432 dbname=chatapp "
+                               "user=chatuser password=chatpass");
+    if (PQstatus(conn) != CONNECTION_OK) {
+        fprintf(stderr, "Connection failed: %s\n", PQerrorMessage(conn));
+        PQfinish(conn);
         exit(1);
     }
 
@@ -220,7 +293,7 @@ int main(void) {
                 continue;
 
             if (fds[i].revents & POLLIN) {
-                recv_packet(fd, fds, users, i);
+                recv_packet(fd, fds, users, i, conn);
             }
         }
     }
