@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <ncurses.h>
 #include <poll.h>
@@ -289,7 +290,25 @@ int main(void) {
         int ch = wgetch(input_win.inner);
         // Handle input
         if (ch != ERR) {
-            if (ch == '\n') {
+            // Window resize
+            if (ch == KEY_RESIZE) {
+                int rows, cols;
+                getmaxyx(stdscr, rows, cols);
+
+                free_bordered_window(&msg_win);
+                free_bordered_window(&input_win);
+
+                msg_win = make_bordered_window(rows - 3, cols, 0, 0);
+                input_win = make_bordered_window(3, cols, rows - 3, 0);
+                scrollok(msg_win.inner, TRUE);
+                nodelay(input_win.inner, TRUE);
+
+                // Redraw the current input buffer
+                mvwprintw(input_win.inner, 0, 0, "%.*s", pos, buf);
+                refresh_bordered_window(&msg_win);
+                refresh_bordered_window(&input_win);
+                continue;
+            } else if (ch == '\n') {
                 if (buf[0] == '\0')
                     continue;
                 buf[pos] = '\0';
@@ -324,6 +343,9 @@ int main(void) {
 
         int ret = poll(fds, 2, 50); // use 50ms timeout to avoid busy waiting
         if (ret < 0) {
+            // If window resized while polling, just redraw and continue
+            if (errno == EINTR)
+                continue; // signal interrupted poll (e.g. SIGWINCH); retry
             perror("poll");
             break;
         }
