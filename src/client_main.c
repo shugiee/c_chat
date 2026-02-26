@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 199309L
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -9,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <protocol.h>
@@ -24,6 +27,11 @@ BorderedWindow input_win; // fixed bottom line
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 18000
 #define BUFFER_SIZE 1024
+#define RESIZE_DEBOUNCE_MS 60
+
+long long timespec_to_ns(struct timespec ts) {
+    return (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
 
 char current_user_name[64];
 
@@ -36,6 +44,26 @@ BorderedWindow make_bordered_window(int rows, int cols, int y, int x) {
     // inner window is 2 smaller in each dimension, offset by 1
     bw.inner = derwin(bw.outer, rows - 2, cols - 2, 1, 1);
     return bw;
+}
+
+void history_init(MessageHistory *h) {
+    h->capacity = 100;
+    h->length = 0;
+    h->data = malloc(h->capacity * sizeof(MessageHeaderAndBody));
+}
+
+void history_push(MessageHistory *h, MessageHeaderAndBody msg) {
+    if (h->length == h->capacity) {
+        h->capacity *= 2;
+        h->data = realloc(h->data, h->capacity * sizeof(MessageHeaderAndBody));
+    }
+    h->data[h->length++] = msg;
+}
+
+void history_free(MessageHistory *h) {
+    free(h->data);
+    h->data = NULL;
+    h->length = h->capacity = 0;
 }
 
 void free_bordered_window(BorderedWindow *bw) {
@@ -188,7 +216,30 @@ void log_successful_connection() {
     post_message(formatted_connection_alert);
 }
 
-int recv_packet(struct pollfd, MessageBody *message_body) {
+int store_message_in_history(MessageBody *body, MessageHeader *hdr,
+                             MessageHistory *history) {
+    MessageHeaderAndBody headerAndBody;
+    headerAndBody.body = *body;
+    headerAndBody.header = *hdr;
+
+    history_push(history, headerAndBody);
+    return 0;
+}
+
+// TODO: handle own messages that are received over the wire from history!
+int post_received_message(MessageBody *body, MessageHeader *hdr,
+                          MessageHistory *history) {
+    // Dim the user's name
+    wattron(msg_win.inner, A_DIM);
+    post_message_with_flair(body->sender_name, body->sender_name);
+    wattroff(msg_win.inner, A_DIM);
+
+    post_message_with_flair(body->body, body->sender_name);
+    return 0;
+}
+
+int recv_packet(struct pollfd, MessageBody *message_body,
+                MessageHistory *history) {
     MessageHeader hdr;
 
     // Receive header
@@ -224,13 +275,8 @@ int recv_packet(struct pollfd, MessageBody *message_body) {
         break;
     }
     case MSG_CHAT: {
-        // TODO: handle own messages that are received over the wire from
-        // history!
-        wattron(msg_win.inner, A_DIM); // Turn on the dim attribute
-        post_message_with_flair(message_body->sender_name,
-                                message_body->sender_name);
-        wattroff(msg_win.inner, A_DIM);
-        post_message_with_flair(message_body->body, message_body->sender_name);
+        store_message_in_history(message_body, &hdr, history);
+        post_received_message(message_body, &hdr, history);
         break;
     }
     default:
@@ -242,9 +288,30 @@ int recv_packet(struct pollfd, MessageBody *message_body) {
     return 0;
 }
 
+static void debounce_resize_event(void) {
+    (void)resize_term(0, 0);
+
+    int next = ERR;
+    timeout(RESIZE_DEBOUNCE_MS);
+    while (1) {
+        next = getch();
+        if (next != KEY_RESIZE)
+            break;
+        (void)resize_term(0, 0);
+    }
+    timeout(-1);
+
+    // Re-post the next event (if any) so it can be handled in the main loop
+    if (next != ERR)
+        (void)ungetch(next);
+}
+
 int main(void) {
     struct sockaddr_in server_addr;
     MessageBody message_body;
+    MessageHistory history;
+
+    history_init(&history);
 
     init_ui();
 
@@ -292,6 +359,8 @@ int main(void) {
         if (ch != ERR) {
             // Window resize
             if (ch == KEY_RESIZE) {
+                // Debounce multiple resize events
+                debounce_resize_event();
                 int rows, cols;
                 getmaxyx(stdscr, rows, cols);
 
@@ -305,8 +374,14 @@ int main(void) {
 
                 // Redraw the current input buffer
                 mvwprintw(input_win.inner, 0, 0, "%.*s", pos, buf);
-                refresh_bordered_window(&msg_win);
-                refresh_bordered_window(&input_win);
+
+                for (int i = 0; i < history.length; i++) {
+                    MessageHeaderAndBody headerAndBody = history.data[i];
+                    post_received_message(&headerAndBody.body,
+                                          &headerAndBody.header, &history);
+
+                    post_message("");
+                }
                 continue;
             } else if (ch == '\n') {
                 if (buf[0] == '\0')
@@ -352,7 +427,7 @@ int main(void) {
 
         // Receive message
         if (fds[1].revents & POLLIN) {
-            if (recv_packet(fds[1], &message_body) < 0) {
+            if (recv_packet(fds[1], &message_body, &history) < 0) {
                 break;
             }
         };
@@ -360,5 +435,6 @@ int main(void) {
     close(sockfd);
     free_bordered_window(&input_win);
     free_bordered_window(&msg_win);
+    history_free(&history);
     return 0;
 };
